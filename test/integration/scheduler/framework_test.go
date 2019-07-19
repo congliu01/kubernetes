@@ -37,9 +37,10 @@ type PrefilterPlugin struct {
 }
 
 type ScorePlugin struct {
-	failScore     bool
-	numCalled     int
-	highScoreNode string
+	failScore               bool
+	numScoreCalled          int
+	numNormalizeScoreCalled int
+	highScoreNode           string
 }
 
 type FilterPlugin struct {
@@ -102,6 +103,7 @@ const (
 var _ = framework.PrefilterPlugin(&PrefilterPlugin{})
 var _ = framework.ScorePlugin(&ScorePlugin{})
 var _ = framework.FilterPlugin(&FilterPlugin{})
+var _ = framework.NormalizeScorePlugin(&ScorePlugin{})
 var _ = framework.ReservePlugin(&ReservePlugin{})
 var _ = framework.PrebindPlugin(&PrebindPlugin{})
 var _ = framework.BindPlugin(&BindPlugin{})
@@ -117,7 +119,8 @@ func (sp *ScorePlugin) Name() string {
 // reset returns name of the score plugin.
 func (sp *ScorePlugin) reset() {
 	sp.failScore = false
-	sp.numCalled = 0
+	sp.numScoreCalled = 0
+	sp.numNormalizeScoreCalled = 0
 	sp.highScoreNode = ""
 }
 
@@ -125,13 +128,13 @@ var scPlugin = &ScorePlugin{}
 
 // Score returns the score of scheduling a pod on a specific node.
 func (sp *ScorePlugin) Score(pc *framework.PluginContext, p *v1.Pod, nodeName string) (int, *framework.Status) {
-	sp.numCalled++
+	sp.numScoreCalled++
 	if sp.failScore {
 		return 0, framework.NewStatus(framework.Error, fmt.Sprintf("injecting failure for pod %v", p.Name))
 	}
 
 	score := 10
-	if sp.numCalled == 1 {
+	if sp.numScoreCalled == 1 {
 		// The first node is scored the highest, the rest is scored lower.
 		sp.highScoreNode = nodeName
 		score = 100
@@ -172,6 +175,11 @@ func (fp *FilterPlugin) Filter(pc *framework.PluginContext, pod *v1.Pod, nodeNam
 // NewFilterPlugin is the factory for filtler plugin.
 func NewFilterPlugin(_ *runtime.Unknown, _ framework.FrameworkHandle) (framework.Plugin, error) {
 	return filterPlugin, nil
+}
+
+func (sp *ScorePlugin) NormalizeScore(pc *framework.PluginContext, scores framework.NodeScoreList) *framework.Status {
+	sp.numNormalizeScoreCalled++
+	return nil
 }
 
 // Name returns name of the plugin.
@@ -484,9 +492,6 @@ func TestPrefilterPlugin(t *testing.T) {
 
 // TestScorePlugin tests invocation of score plugins.
 func TestScorePlugin(t *testing.T) {
-	// Create a plugin registry for testing. Register only a score plugin.
-	registry := framework.Registry{scorePluginName: NewScorePlugin}
-
 	// Setup initial score plugin for testing.
 	plugins := &schedulerconfig.Plugins{
 		Score: &schedulerconfig.PluginSet{
@@ -497,21 +502,8 @@ func TestScorePlugin(t *testing.T) {
 			},
 		},
 	}
-	// Set empty plugin config for testing
-	emptyPluginConfig := []schedulerconfig.PluginConfig{}
-
-	// Create the master and the scheduler with the test plugin set.
-	context := initTestSchedulerWithOptions(t,
-		initTestMaster(t, "score-plugin", nil),
-		false, nil, registry, plugins, emptyPluginConfig, false, time.Second)
+	context, cs := initTestContextForScorePlugin(t, plugins)
 	defer cleanupTest(t, context)
-
-	cs := context.clientSet
-	// Add multiple nodes, one of them will be scored much higher than the others.
-	_, err := createNodes(cs, "test-node", nil, 10)
-	if err != nil {
-		t.Fatalf("Cannot create nodes: %v", err)
-	}
 
 	for i, fail := range []bool{false, true} {
 		scPlugin.failScore = fail
@@ -539,13 +531,56 @@ func TestScorePlugin(t *testing.T) {
 			}
 		}
 
-		if scPlugin.numCalled == 0 {
-			t.Errorf("Expected the reserve plugin to be called.")
+		if scPlugin.numScoreCalled == 0 {
+			t.Errorf("Expected the score plugin to be called.")
 		}
 
 		scPlugin.reset()
 		cleanupPods(cs, t, []*v1.Pod{pod})
 	}
+}
+
+// TestNormalizeScorePlugin tests invocation of normalize score plugins.
+func TestNormalizeScorePlugin(t *testing.T) {
+	// Setup initial score plugin for testing.
+	plugins := &schedulerconfig.Plugins{
+		Score: &schedulerconfig.PluginSet{
+			Enabled: []schedulerconfig.Plugin{
+				{
+					Name: scorePluginName,
+				},
+			},
+		},
+		NormalizeScore: &schedulerconfig.PluginSet{
+			Enabled: []schedulerconfig.Plugin{
+				{
+					Name: scorePluginName,
+				},
+			},
+		},
+	}
+	context, cs := initTestContextForScorePlugin(t, plugins)
+	defer cleanupTest(t, context)
+
+	// Create a best effort pod.
+	pod, err := createPausePod(cs,
+		initPausePod(cs, &pausePodConfig{Name: "test-pod", Namespace: context.ns.Name}))
+	if err != nil {
+		t.Fatalf("Error while creating a test pod: %v", err)
+	}
+
+	if err = waitForPodToSchedule(cs, pod); err != nil {
+		t.Errorf("Expected the pod to be scheduled. error: %v", err)
+	}
+
+	if scPlugin.numScoreCalled == 0 {
+		t.Errorf("Expected the score plugin to be called.")
+	}
+	if scPlugin.numNormalizeScoreCalled == 0 {
+		t.Error("Expected the normalize score plugin to be called")
+	}
+
+	scPlugin.reset()
 }
 
 // TestReservePlugin tests invocation of reserve plugins.
@@ -1381,4 +1416,25 @@ func TestFilterPlugin(t *testing.T) {
 		filterPlugin.reset()
 		cleanupPods(cs, t, []*v1.Pod{pod})
 	}
+}
+
+func initTestContextForScorePlugin(t *testing.T, plugins *schedulerconfig.Plugins) (*testContext, *clientset.Clientset) {
+	// Create a plugin registry for testing. Register only a score plugin.
+	registry := framework.Registry{scorePluginName: NewScorePlugin}
+
+	// Set empty plugin config for testing
+	emptyPluginConfig := []schedulerconfig.PluginConfig{}
+
+	// Create the master and the scheduler with the test plugin set.
+	context := initTestSchedulerWithOptions(t,
+		initTestMaster(t, "score-plugin", nil),
+		false, nil, registry, plugins, emptyPluginConfig, false, time.Second)
+
+	cs := context.clientSet
+	// Add multiple nodes, one of them will be scored much higher than the others.
+	_, err := createNodes(cs, "test-node", nil, 10)
+	if err != nil {
+		t.Fatalf("Cannot create nodes: %v", err)
+	}
+	return context, cs
 }

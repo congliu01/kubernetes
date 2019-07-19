@@ -42,6 +42,7 @@ type framework struct {
 	prefilterPlugins      []PrefilterPlugin
 	filterPlugins         []FilterPlugin
 	scorePlugins          []ScorePlugin
+	normalizeScorePlugins []NormalizeScorePlugin
 	reservePlugins        []ReservePlugin
 	prebindPlugins        []PrebindPlugin
 	bindPlugins           []BindPlugin
@@ -141,6 +142,20 @@ func NewFramework(r Registry, plugins *config.Plugins, args []config.PluginConfi
 				f.scorePlugins = append(f.scorePlugins, p)
 			} else {
 				return nil, fmt.Errorf("score plugin %v does not exist", sc.Name)
+			}
+		}
+	}
+
+	if plugins.NormalizeScore != nil {
+		for _, ns := range plugins.NormalizeScore.Enabled {
+			if pg, ok := pluginsMap[ns.Name]; ok {
+				p, ok := pg.(NormalizeScorePlugin)
+				if !ok {
+					return nil, fmt.Errorf("plugin %v does not extend normalize score plugin", ns.Name)
+				}
+				f.normalizeScorePlugins = append(f.normalizeScorePlugins, p)
+			} else {
+				return nil, fmt.Errorf("normalize score plugin %v does not exist", ns.Name)
 			}
 		}
 	}
@@ -335,6 +350,36 @@ func (f *framework) RunScorePlugins(pc *PluginContext, pod *v1.Pod, nodes []*v1.
 	}
 
 	return pluginToNodeScoreMap, nil
+}
+
+// RunNormalizeScorePlugins runs the normalize score plugins. It should be called after
+// RunScorePlugins with the PluginToNodeScoreMap result. It then modifies the map with
+// normalized scores. It returns a non-success Status if any of the normalize score plugins
+// returns a non-success status.
+func (f *framework) RunNormalizeScorePlugins(pc *PluginContext, pod *v1.Pod, scores PluginToNodeScoreMap) *Status {
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := schedutil.NewErrorChannel()
+	workqueue.ParallelizeUntil(ctx, 16, len(f.normalizeScorePlugins), func(index int) {
+		pl := f.normalizeScorePlugins[index]
+		nodeScoreList, ok := scores[pl.Name()]
+		if !ok {
+			klog.Warningf("NormalizeScorePlugin %v has no corresponding Score plugin configured. Skipping.", pl.Name())
+			return
+		}
+		status := pl.NormalizeScore(pc, nodeScoreList)
+		if !status.IsSuccess() {
+			err := fmt.Errorf("normalize score plugin %v failed with error %v", pl.Name(), status.Message())
+			errCh.SendErrorWithCancel(err, cancel)
+		}
+	})
+
+	if err := errCh.ReceiveError(); err != nil {
+		msg := fmt.Sprintf("error while running normalize score plugin for pod %v: %v", pod.Name, err)
+		klog.Error(msg)
+		return NewStatus(Error, msg)
+	}
+
+	return nil
 }
 
 // RunPrebindPlugins runs the set of configured prebind plugins. It returns a

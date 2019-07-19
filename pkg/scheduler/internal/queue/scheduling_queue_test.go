@@ -179,6 +179,10 @@ func (*fakeFramework) RunScorePlugins(pc *framework.PluginContext, pod *v1.Pod, 
 	return nil, nil
 }
 
+func (*fakeFramework) RunNormalizeScorePlugins(pc *framework.PluginContext, pod *v1.Pod, scores framework.PluginToNodeScoreMap) *framework.Status {
+	return nil
+}
+
 func (*fakeFramework) RunPrebindPlugins(pc *framework.PluginContext, pod *v1.Pod, nodeName string) *framework.Status {
 	return nil
 }
