@@ -149,6 +149,11 @@ func NewFramework(r Registry, plugins *config.Plugins, args []config.PluginConfi
 	if plugins.NormalizeScore != nil {
 		for _, ns := range plugins.NormalizeScore.Enabled {
 			if pg, ok := pluginsMap[ns.Name]; ok {
+				// A NormalizeScore must also implement Score plugin. See KEP in
+				// https://github.com/kubernetes/enhancements/blob/master/keps/sig-scheduling/20180409-scheduling-framework.md#normalize-scoring
+				if _, ok := pg.(ScorePlugin); !ok {
+					return nil, fmt.Errorf("plugin %v should also extend Score plugin if it were to be used as NormalizeScore plugin", ns.Name)
+				}
 				p, ok := pg.(NormalizeScorePlugin)
 				if !ok {
 					return nil, fmt.Errorf("plugin %v does not extend normalize score plugin", ns.Name)
@@ -361,11 +366,9 @@ func (f *framework) RunNormalizeScorePlugins(pc *PluginContext, pod *v1.Pod, sco
 	errCh := schedutil.NewErrorChannel()
 	workqueue.ParallelizeUntil(ctx, 16, len(f.normalizeScorePlugins), func(index int) {
 		pl := f.normalizeScorePlugins[index]
-		nodeScoreList, ok := scores[pl.Name()]
-		if !ok {
-			klog.Warningf("NormalizeScorePlugin %v has no corresponding Score plugin configured. Skipping.", pl.Name())
-			return
-		}
+		// During framework initialization, we make sure that NormalizeScore plugins are
+		// a subset of Score plugins. So nodeScoreList must always exist.
+		nodeScoreList, _ := scores[pl.Name()]
 		status := pl.NormalizeScore(pc, nodeScoreList)
 		if !status.IsSuccess() {
 			err := fmt.Errorf("normalize score plugin %v failed with error %v", pl.Name(), status.Message())
