@@ -170,12 +170,10 @@ type ScorePlugin interface {
 	Score(pc *PluginContext, p *v1.Pod, nodeName string) (int, *Status)
 }
 
-// NormalizeScorePlugin is an interface that must be implemented by "normalize score"
-// plugins to normalize the node scoring results produced by the same plugin's "Score"
-// method.
-type NormalizeScorePlugin interface {
-	// A NormalizeScore must also implement Score plugin. See KEP in
-	// https://github.com/kubernetes/enhancements/blob/master/keps/sig-scheduling/20180409-scheduling-framework.md#normalize-scoring
+// ScoreWithNormalizePlugin is an interface that must be implemented by "score"
+// plugins that also need to normalize the node scoring results produced by the same
+// plugin's "Score" method.
+type ScoreWithNormalizePlugin interface {
 	ScorePlugin
 	// NormalizeScore is called for all node scores produced by the same plugin's "Score"
 	// method. A successful run of NormalizeScore will update the scores list and return

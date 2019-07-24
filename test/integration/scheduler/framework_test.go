@@ -103,7 +103,7 @@ const (
 var _ = framework.PrefilterPlugin(&PrefilterPlugin{})
 var _ = framework.ScorePlugin(&ScorePlugin{})
 var _ = framework.FilterPlugin(&FilterPlugin{})
-var _ = framework.NormalizeScorePlugin(&ScorePlugin{})
+var _ = framework.ScoreWithNormalizePlugin(&ScorePlugin{})
 var _ = framework.ReservePlugin(&ReservePlugin{})
 var _ = framework.PrebindPlugin(&PrebindPlugin{})
 var _ = framework.BindPlugin(&BindPlugin{})

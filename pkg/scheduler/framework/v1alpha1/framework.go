@@ -34,21 +34,21 @@ import (
 // framework is the component responsible for initializing and running scheduler
 // plugins.
 type framework struct {
-	registry              Registry
-	nodeInfoSnapshot      *cache.NodeInfoSnapshot
-	waitingPods           *waitingPodsMap
-	pluginNameToWeightMap map[string]int
-	queueSortPlugins      []QueueSortPlugin
-	prefilterPlugins      []PrefilterPlugin
-	filterPlugins         []FilterPlugin
-	scorePlugins          []ScorePlugin
-	normalizeScorePlugins []NormalizeScorePlugin
-	reservePlugins        []ReservePlugin
-	prebindPlugins        []PrebindPlugin
-	bindPlugins           []BindPlugin
-	postbindPlugins       []PostbindPlugin
-	unreservePlugins      []UnreservePlugin
-	permitPlugins         []PermitPlugin
+	registry                  Registry
+	nodeInfoSnapshot          *cache.NodeInfoSnapshot
+	waitingPods               *waitingPodsMap
+	pluginNameToWeightMap     map[string]int
+	queueSortPlugins          []QueueSortPlugin
+	prefilterPlugins          []PrefilterPlugin
+	filterPlugins             []FilterPlugin
+	scorePlugins              []ScorePlugin
+	scoreWithNormalizePlugins []ScoreWithNormalizePlugin
+	reservePlugins            []ReservePlugin
+	prebindPlugins            []PrebindPlugin
+	bindPlugins               []BindPlugin
+	postbindPlugins           []PostbindPlugin
+	unreservePlugins          []UnreservePlugin
+	permitPlugins             []PermitPlugin
 }
 
 const (
@@ -153,7 +153,7 @@ func NewFramework(r Registry, plugins *config.Plugins, args []config.PluginConfi
 		}
 		for _, ns := range plugins.NormalizeScore.Enabled {
 			if pg, ok := pluginsMap[ns.Name]; ok {
-				p, ok := pg.(NormalizeScorePlugin)
+				p, ok := pg.(ScoreWithNormalizePlugin)
 				if !ok {
 					return nil, fmt.Errorf("plugin %v does not extend normalize score plugin", ns.Name)
 				}
@@ -162,7 +162,7 @@ func NewFramework(r Registry, plugins *config.Plugins, args []config.PluginConfi
 					return nil, fmt.Errorf("plugin %v is not enabled as a score plugin", ns.Name)
 				}
 
-				f.normalizeScorePlugins = append(f.normalizeScorePlugins, p)
+				f.scoreWithNormalizePlugins = append(f.scoreWithNormalizePlugins, p)
 			} else {
 				return nil, fmt.Errorf("normalize score plugin %v does not exist", ns.Name)
 			}
@@ -366,8 +366,8 @@ func (f *framework) RunScorePlugins(pc *PluginContext, pod *v1.Pod, nodes []*v1.
 func (f *framework) RunNormalizeScorePlugins(pc *PluginContext, pod *v1.Pod, scores PluginToNodeScoreMap) *Status {
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := schedutil.NewErrorChannel()
-	workqueue.ParallelizeUntil(ctx, 16, len(f.normalizeScorePlugins), func(index int) {
-		pl := f.normalizeScorePlugins[index]
+	workqueue.ParallelizeUntil(ctx, 16, len(f.scoreWithNormalizePlugins), func(index int) {
+		pl := f.scoreWithNormalizePlugins[index]
 		nodeScoreList, ok := scores[pl.Name()]
 		// During framework initialization, we make sure that NormalizeScore plugins are
 		// a subset of Score plugins. So nodeScoreList should exist given that implementation

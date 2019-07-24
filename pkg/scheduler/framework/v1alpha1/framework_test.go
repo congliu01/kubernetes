@@ -33,8 +33,8 @@ const (
 	weight2      = 3
 )
 
-var _ = NormalizeScorePlugin(&TestScorePlugin1{})
-var _ = NormalizeScorePlugin(&TestScorePlugin2{})
+var _ = ScoreWithNormalizePlugin(&TestScorePlugin1{})
+var _ = ScoreWithNormalizePlugin(&TestScorePlugin2{})
 
 type TestScorePlugin1 struct {
 	// If fail is true, NormalizeScore will return error status.
