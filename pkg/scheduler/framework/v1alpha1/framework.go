@@ -147,9 +147,9 @@ func NewFramework(r Registry, plugins *config.Plugins, args []config.PluginConfi
 	}
 
 	if plugins.NormalizeScore != nil {
-		enabledScorePlugins := make(map[string]bool, len(f.scorePlugins))
+		enabledScorePlugins := make(map[string]struct{}, len(f.scorePlugins))
 		for _, sp := range f.scorePlugins {
-			enabledScorePlugins[sp.Name()] = true
+			enabledScorePlugins[sp.Name()] = struct{}{}
 		}
 		for _, ns := range plugins.NormalizeScore.Enabled {
 			if pg, ok := pluginsMap[ns.Name]; ok {
@@ -158,7 +158,7 @@ func NewFramework(r Registry, plugins *config.Plugins, args []config.PluginConfi
 					return nil, fmt.Errorf("plugin %v does not extend normalize score plugin", ns.Name)
 				}
 
-				if !enabledScorePlugins[p.Name()] {
+				if _, exist := enabledScorePlugins[p.Name()]; !exist {
 					return nil, fmt.Errorf("plugin %v is not enabled as a score plugin", ns.Name)
 				}
 
@@ -373,7 +373,7 @@ func (f *framework) RunNormalizeScorePlugins(pc *PluginContext, pod *v1.Pod, sco
 		// a subset of Score plugins. So nodeScoreList should exist given that implementation
 		// of RunScorePlugins produce the correct output.
 		if !ok {
-			err := fmt.Errorf("NormalizeScore plugin %v has no corresponding scores in the PluginToNodeScoreMap.", pl.Name())
+			err := fmt.Errorf("normalize score plugin %v has no corresponding scores in the PluginToNodeScoreMap", pl.Name())
 			errCh.SendErrorWithCancel(err, cancel)
 		}
 		status := pl.NormalizeScore(pc, nodeScoreList)
@@ -403,7 +403,7 @@ func (f *framework) ApplyScoreWeights(pc *PluginContext, pod *v1.Pod, scores Plu
 		weight := f.pluginNameToWeightMap[pl.Name()]
 		nodeScoreList, ok := scores[pl.Name()]
 		if !ok {
-			err := fmt.Errorf("Score plugin %v has no corresponding scores in the PluginToNodeScoreMap.", pl.Name())
+			err := fmt.Errorf("score plugin %v has no corresponding scores in the PluginToNodeScoreMap.", pl.Name())
 			errCh.SendErrorWithCancel(err, cancel)
 		}
 		for i := range nodeScoreList {
