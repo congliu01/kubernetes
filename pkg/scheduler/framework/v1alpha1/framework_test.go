@@ -174,9 +174,25 @@ func TestInitFrameworkWithNormalizeScorePlugins(t *testing.T) {
 		{
 			name: "enabled NormalizeScore plugin doesn't extend the interface",
 			plugins: &config.Plugins{
+				Score: &config.PluginSet{
+					Enabled: []config.Plugin{
+						{Name: scorePlugin3},
+					},
+				},
 				NormalizeScore: &config.PluginSet{
 					Enabled: []config.Plugin{
 						{Name: scorePlugin3},
+					},
+				},
+			},
+			initErr: true,
+		},
+		{
+			name: "enabled NormalizeScore plugin is not enabled as Score plugin",
+			plugins: &config.Plugins{
+				NormalizeScore: &config.PluginSet{
+					Enabled: []config.Plugin{
+						{Name: scorePlugin1},
 					},
 				},
 			},

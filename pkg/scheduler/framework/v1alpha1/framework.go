@@ -147,12 +147,21 @@ func NewFramework(r Registry, plugins *config.Plugins, args []config.PluginConfi
 	}
 
 	if plugins.NormalizeScore != nil {
+		enabledScorePlugins := make(map[string]bool, len(f.scorePlugins))
+		for _, sp := range f.scorePlugins {
+			enabledScorePlugins[sp.Name()] = true
+		}
 		for _, ns := range plugins.NormalizeScore.Enabled {
 			if pg, ok := pluginsMap[ns.Name]; ok {
 				p, ok := pg.(NormalizeScorePlugin)
 				if !ok {
 					return nil, fmt.Errorf("plugin %v does not extend normalize score plugin", ns.Name)
 				}
+
+				if !enabledScorePlugins[p.Name()] {
+					return nil, fmt.Errorf("plugin %v is not enabled as a score plugin", ns.Name)
+				}
+
 				f.normalizeScorePlugins = append(f.normalizeScorePlugins, p)
 			} else {
 				return nil, fmt.Errorf("normalize score plugin %v does not exist", ns.Name)
