@@ -174,7 +174,9 @@ type ScorePlugin interface {
 // plugins to normalize the node scoring results produced by the same plugin's "Score"
 // method.
 type NormalizeScorePlugin interface {
-	Plugin
+	// A NormalizeScore must also implement Score plugin. See KEP in
+	// https://github.com/kubernetes/enhancements/blob/master/keps/sig-scheduling/20180409-scheduling-framework.md#normalize-scoring
+	ScorePlugin
 	// NormalizeScore is called for all node scores produced by the same plugin's "Score"
 	// method. A successful run of NormalizeScore will update the scores list and return
 	// a success status.
@@ -280,6 +282,10 @@ type Framework interface {
 	// normalized scores. It returns a non-success Status if any of the normalize score plugins
 	// returns a non-success status.
 	RunNormalizeScorePlugins(pc *PluginContext, pod *v1.Pod, scores PluginToNodeScoreMap) *Status
+
+	// ApplyScoreWeights applies weights to the score results. It should be called after
+	// RunNormalizeScorePlugins.
+	ApplyScoreWeights(pc *PluginContext, pod *v1.Pod, scores PluginToNodeScoreMap) *Status
 
 	// RunPrebindPlugins runs the set of configured prebind plugins. It returns
 	// *Status and its code is set to non-success if any of the plugins returns

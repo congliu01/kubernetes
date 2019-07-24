@@ -149,11 +149,6 @@ func NewFramework(r Registry, plugins *config.Plugins, args []config.PluginConfi
 	if plugins.NormalizeScore != nil {
 		for _, ns := range plugins.NormalizeScore.Enabled {
 			if pg, ok := pluginsMap[ns.Name]; ok {
-				// A NormalizeScore must also implement Score plugin. See KEP in
-				// https://github.com/kubernetes/enhancements/blob/master/keps/sig-scheduling/20180409-scheduling-framework.md#normalize-scoring
-				if _, ok := pg.(ScorePlugin); !ok {
-					return nil, fmt.Errorf("plugin %v should also extend Score plugin if it were to be used as NormalizeScore plugin", ns.Name)
-				}
 				p, ok := pg.(NormalizeScorePlugin)
 				if !ok {
 					return nil, fmt.Errorf("plugin %v does not extend normalize score plugin", ns.Name)
@@ -337,14 +332,12 @@ func (f *framework) RunScorePlugins(pc *PluginContext, pod *v1.Pod, nodes []*v1.
 	errCh := schedutil.NewErrorChannel()
 	workqueue.ParallelizeUntil(ctx, 16, len(nodes), func(index int) {
 		for _, pl := range f.scorePlugins {
-			// Score plugins' weight has been checked when they are initialized.
-			weight := f.pluginNameToWeightMap[pl.Name()]
 			score, status := pl.Score(pc, pod, nodes[index].Name)
 			if !status.IsSuccess() {
 				errCh.SendErrorWithCancel(fmt.Errorf(status.Message()), cancel)
 				return
 			}
-			pluginToNodeScoreMap[pl.Name()][index] = score * weight
+			pluginToNodeScoreMap[pl.Name()][index] = score
 		}
 	})
 
@@ -366,9 +359,14 @@ func (f *framework) RunNormalizeScorePlugins(pc *PluginContext, pod *v1.Pod, sco
 	errCh := schedutil.NewErrorChannel()
 	workqueue.ParallelizeUntil(ctx, 16, len(f.normalizeScorePlugins), func(index int) {
 		pl := f.normalizeScorePlugins[index]
+		nodeScoreList, ok := scores[pl.Name()]
 		// During framework initialization, we make sure that NormalizeScore plugins are
-		// a subset of Score plugins. So nodeScoreList must always exist.
-		nodeScoreList, _ := scores[pl.Name()]
+		// a subset of Score plugins. So nodeScoreList should exist given that implementation
+		// of RunScorePlugins produce the correct output.
+		if !ok {
+			err := fmt.Errorf("NormalizeScore plugin %v has no corresponding scores in the PluginToNodeScoreMap.", pl.Name())
+			errCh.SendErrorWithCancel(err, cancel)
+		}
 		status := pl.NormalizeScore(pc, nodeScoreList)
 		if !status.IsSuccess() {
 			err := fmt.Errorf("normalize score plugin %v failed with error %v", pl.Name(), status.Message())
@@ -378,6 +376,34 @@ func (f *framework) RunNormalizeScorePlugins(pc *PluginContext, pod *v1.Pod, sco
 
 	if err := errCh.ReceiveError(); err != nil {
 		msg := fmt.Sprintf("error while running normalize score plugin for pod %v: %v", pod.Name, err)
+		klog.Error(msg)
+		return NewStatus(Error, msg)
+	}
+
+	return nil
+}
+
+// ApplyScoreWeights applies weights to the score results. It should be called after
+// RunNormalizeScorePlugins.
+func (f *framework) ApplyScoreWeights(pc *PluginContext, pod *v1.Pod, scores PluginToNodeScoreMap) *Status {
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := schedutil.NewErrorChannel()
+	workqueue.ParallelizeUntil(ctx, 16, len(f.scorePlugins), func(index int) {
+		pl := f.scorePlugins[index]
+		// Score plugins' weight has been checked when they are initialized.
+		weight := f.pluginNameToWeightMap[pl.Name()]
+		nodeScoreList, ok := scores[pl.Name()]
+		if !ok {
+			err := fmt.Errorf("Score plugin %v has no corresponding scores in the PluginToNodeScoreMap.", pl.Name())
+			errCh.SendErrorWithCancel(err, cancel)
+		}
+		for i := range nodeScoreList {
+			nodeScoreList[i] = nodeScoreList[i] * weight
+		}
+	})
+
+	if err := errCh.ReceiveError(); err != nil {
+		msg := fmt.Sprintf("error while applying score weights for pod %v: %v", pod.Name, err)
 		klog.Error(msg)
 		return NewStatus(Error, msg)
 	}

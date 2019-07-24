@@ -29,7 +29,8 @@ const (
 	scorePlugin1 = "score-plugin-1"
 	scorePlugin2 = "score-plugin-2"
 	scorePlugin3 = "score-plugin-3"
-	scorePlugin4 = "score-plugin-4"
+	weight1      = 2
+	weight2      = 3
 )
 
 var _ = NormalizeScorePlugin(&TestScorePlugin1{})
@@ -95,7 +96,7 @@ func (pl *TestScorePlugin2) Score(pc *PluginContext, p *v1.Pod, nodeName string)
 	return 0, nil
 }
 
-// TestScorePlugin3 only implements NormalizeScore but not Score plugin interface.
+// TestScorePlugin3 only implements Score but not NormalizeScore plugin interface.
 type TestScorePlugin3 struct{}
 
 // NewNormalizeScorePlugin3 is the factory for NormalizeScore plugin 3.
@@ -107,54 +108,57 @@ func (pl *TestScorePlugin3) Name() string {
 	return scorePlugin3
 }
 
-func (pl *TestScorePlugin3) NormalizeScore(pc *PluginContext, scores NodeScoreList) *Status {
-	return nil
-}
-
-// TestScorePlugin4 only implements Score but not NormalizeScore plugin interface.
-type TestScorePlugin4 struct{}
-
-// NewNormalizeScorePlugin4 is the factory for NormalizeScore plugin 3.
-func NewNormalizeScorePlugin4(_ *runtime.Unknown, _ FrameworkHandle) (Plugin, error) {
-	return &TestScorePlugin3{}, nil
-}
-
-func (pl *TestScorePlugin4) Name() string {
-	return scorePlugin4
-}
-
-func (pl *TestScorePlugin4) Score(pc *PluginContext, p *v1.Pod, nodeName string) (int, *Status) {
+func (pl *TestScorePlugin3) Score(pc *PluginContext, p *v1.Pod, nodeName string) (int, *Status) {
 	// Score is currently not used in the tests so just return some dummy value.
 	return 0, nil
 }
 
-func TestRunNormalizeScorePlugins(t *testing.T) {
-	registry := Registry{
-		scorePlugin1: NewNormalizeScorePlugin1,
-		scorePlugin2: NewNormalizeScorePlugin2,
-		scorePlugin3: NewNormalizeScorePlugin3,
-		scorePlugin4: NewNormalizeScorePlugin4,
-	}
-	// No specific config required.
-	args := []config.PluginConfig{}
-	pc := &PluginContext{}
-	// Pod is only used for logging errors.
-	pod := &v1.Pod{}
+var registry = Registry{
+	scorePlugin1: NewNormalizeScorePlugin1,
+	scorePlugin2: NewNormalizeScorePlugin2,
+	scorePlugin3: NewNormalizeScorePlugin3,
+}
 
-	scoreMap1 := PluginToNodeScoreMap{
-		scorePlugin1: {2, 3},
-	}
+var plugin1 = &config.Plugins{
+	Score: &config.PluginSet{
+		Enabled: []config.Plugin{
+			{Name: scorePlugin1, Weight: weight1},
+		},
+	},
+	NormalizeScore: &config.PluginSet{
+		Enabled: []config.Plugin{
+			{Name: scorePlugin1, Weight: weight1},
+		},
+	},
+}
+var plugin1And2 = &config.Plugins{
+	Score: &config.PluginSet{
+		Enabled: []config.Plugin{
+			{Name: scorePlugin1, Weight: weight1},
+			{Name: scorePlugin2, Weight: weight2},
+		},
+	},
+	NormalizeScore: &config.PluginSet{
+		Enabled: []config.Plugin{
+			{Name: scorePlugin1, Weight: weight1},
+			{Name: scorePlugin2, Weight: weight2},
+		},
+	},
+}
 
+// No specific config required.
+var args = []config.PluginConfig{}
+var pc = &PluginContext{}
+
+// Pod is only used for logging errors.
+var pod = &v1.Pod{}
+
+func TestInitFrameworkWithNormalizeScorePlugins(t *testing.T) {
 	tests := []struct {
-		name     string
-		registry Registry
-		plugins  *config.Plugins
-		input    PluginToNodeScoreMap
-		want     PluginToNodeScoreMap
+		name    string
+		plugins *config.Plugins
 		// If initErr is true, we expect framework initialization to fail.
 		initErr bool
-		// If runErr is true, we expect RunNormalizeScorePlugin to fail.
-		runErr bool
 	}{
 		{
 			name: "enabled NormalizeScore plugin doesn't exist in registry",
@@ -165,11 +169,10 @@ func TestRunNormalizeScorePlugins(t *testing.T) {
 					},
 				},
 			},
-			registry: registry,
-			initErr:  true,
+			initErr: true,
 		},
 		{
-			name: "enabled NormalizeScore plugin doesn't extend Score interface",
+			name: "enabled NormalizeScore plugin doesn't extend the interface",
 			plugins: &config.Plugins{
 				NormalizeScore: &config.PluginSet{
 					Enabled: []config.Plugin{
@@ -177,28 +180,56 @@ func TestRunNormalizeScorePlugins(t *testing.T) {
 					},
 				},
 			},
-			registry: registry,
-			initErr:  true,
+			initErr: true,
 		},
 		{
-			name: "enabled NormalizeScore plugin doesn't extend NormalizeScore interface",
+			name:    "NormalizeScore plugins are nil",
+			plugins: &config.Plugins{NormalizeScore: nil},
+		},
+		{
+			name: "enabled NormalizeScore plugin list is empty",
 			plugins: &config.Plugins{
 				NormalizeScore: &config.PluginSet{
-					Enabled: []config.Plugin{
-						{Name: scorePlugin4},
-					},
+					Enabled: []config.Plugin{},
 				},
 			},
-			registry: registry,
-			initErr:  true,
 		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewFramework(registry, tt.plugins, args)
+			if tt.initErr && err == nil {
+				t.Fatal("Framework initialization should fail")
+			}
+			if !tt.initErr && err != nil {
+				t.Fatalf("Failed to create framework for testing: %v", err)
+			}
+		})
+	}
+}
+
+func TestRunNormalizeScorePlugins(t *testing.T) {
+	tests := []struct {
+		name     string
+		registry Registry
+		plugins  *config.Plugins
+		input    PluginToNodeScoreMap
+		want     PluginToNodeScoreMap
+		// If err is true, we expect RunNormalizeScorePlugin to fail.
+		err bool
+	}{
 		{
 			name:     "NormalizeScore plugins are nil",
 			plugins:  &config.Plugins{NormalizeScore: nil},
 			registry: registry,
-			input:    scoreMap1,
+			input: PluginToNodeScoreMap{
+				scorePlugin1: {2, 3},
+			},
 			// No NormalizeScore plugin, map should be untouched.
-			want: scoreMap1,
+			want: PluginToNodeScoreMap{
+				scorePlugin1: {2, 3},
+			},
 		},
 		{
 			name: "enabled NormalizeScore plugin list is empty",
@@ -208,20 +239,18 @@ func TestRunNormalizeScorePlugins(t *testing.T) {
 				},
 			},
 			registry: registry,
-			input:    scoreMap1,
+			input: PluginToNodeScoreMap{
+				scorePlugin1: {2, 3},
+			},
 			// No NormalizeScore plugin, map should be untouched.
-			want: scoreMap1,
+			want: PluginToNodeScoreMap{
+				scorePlugin1: {2, 3},
+			},
 		},
 		{
 			name:     "single Score plugin, single NormalizeScore plugin",
 			registry: registry,
-			plugins: &config.Plugins{
-				NormalizeScore: &config.PluginSet{
-					Enabled: []config.Plugin{
-						{Name: scorePlugin1},
-					},
-				},
-			},
+			plugins:  plugin1,
 			input: PluginToNodeScoreMap{
 				scorePlugin1: {2, 3},
 			},
@@ -233,14 +262,7 @@ func TestRunNormalizeScorePlugins(t *testing.T) {
 		{
 			name:     "2 Score plugins, 2 NormalizeScore plugins",
 			registry: registry,
-			plugins: &config.Plugins{
-				NormalizeScore: &config.PluginSet{
-					Enabled: []config.Plugin{
-						{Name: scorePlugin1},
-						{Name: scorePlugin2},
-					},
-				},
-			},
+			plugins:  plugin1And2,
 			input: PluginToNodeScoreMap{
 				scorePlugin1: {2, 3},
 				scorePlugin2: {2, 4},
@@ -255,13 +277,7 @@ func TestRunNormalizeScorePlugins(t *testing.T) {
 		{
 			name:     "2 Score plugins, 1 NormalizeScore plugin",
 			registry: registry,
-			plugins: &config.Plugins{
-				NormalizeScore: &config.PluginSet{
-					Enabled: []config.Plugin{
-						{Name: scorePlugin1},
-					},
-				},
-			},
+			plugins:  plugin1,
 			input: PluginToNodeScoreMap{
 				scorePlugin1: {2, 3},
 				scorePlugin2: {2, 4},
@@ -279,47 +295,112 @@ func TestRunNormalizeScorePlugins(t *testing.T) {
 				scorePlugin1: NewNormalizeScorePlugin1InjectFailure,
 				scorePlugin2: NewNormalizeScorePlugin2,
 			},
-			plugins: &config.Plugins{
-				NormalizeScore: &config.PluginSet{
-					Enabled: []config.Plugin{
-						{Name: scorePlugin1},
-						{Name: scorePlugin2},
-					},
-				},
-			},
+			plugins: plugin1And2,
 			input: PluginToNodeScoreMap{
 				scorePlugin1: {2, 3},
 				scorePlugin2: {2, 4},
 			},
-			runErr: true,
+			err: true,
+		},
+		{
+			name:     "2 plugins but score map only contains plugin1",
+			registry: registry,
+			plugins:  plugin1And2,
+			input: PluginToNodeScoreMap{
+				scorePlugin1: {2, 3},
+			},
+			err: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f, err := NewFramework(tt.registry, tt.plugins, args)
-			if tt.initErr && err == nil {
-				t.Fatal("Framework initialization should fail")
+			if err != nil {
+				t.Fatalf("Failed to create framework for testing: %v", err)
 			}
 
-			if !tt.initErr {
-				if err != nil {
-					t.Fatalf("Failed to create framework for testing: %v", err)
+			status := f.RunNormalizeScorePlugins(pc, pod, tt.input)
+
+			if tt.err {
+				if status.IsSuccess() {
+					t.Errorf("Expected status to be non-success.")
 				}
+			} else {
+				if !status.IsSuccess() {
+					t.Errorf("Expected status to be success.")
+				}
+				if !reflect.DeepEqual(tt.input, tt.want) {
+					t.Errorf("Score map after RunNormalizeScorePlugin: %+v, want: %+v.", tt.input, tt.want)
+				}
+			}
+		})
+	}
+}
 
-				status := f.RunNormalizeScorePlugins(pc, pod, tt.input)
+func TestApplyScoreWeights(t *testing.T) {
+	tests := []struct {
+		name    string
+		plugins *config.Plugins
+		input   PluginToNodeScoreMap
+		want    PluginToNodeScoreMap
+		// If err is true, we expect ApplyScoreWeights to fail.
+		err bool
+	}{
+		{
+			name:    "single Score plugin, single nodeScoreList",
+			plugins: plugin1,
+			input: PluginToNodeScoreMap{
+				scorePlugin1: {2, 3},
+			},
+			want: PluginToNodeScoreMap{
+				// For plugin1, want=input*weight1.
+				scorePlugin1: {4, 6},
+			},
+		},
+		{
+			name:    "2 Score plugins, 2 nodeScoreLists in scoreMap",
+			plugins: plugin1And2,
+			input: PluginToNodeScoreMap{
+				scorePlugin1: {2, 3},
+				scorePlugin2: {2, 4},
+			},
+			want: PluginToNodeScoreMap{
+				// For plugin1, want=input*weight1.
+				scorePlugin1: {4, 6},
+				// For plugin2, want=input*weight2.
+				scorePlugin2: {6, 12},
+			},
+		},
+		{
+			name:    "2 Score plugins, 1 without corresponding nodeScoreList in the score map",
+			plugins: plugin1And2,
+			input: PluginToNodeScoreMap{
+				scorePlugin1: {2, 3},
+			},
+			err: true,
+		},
+	}
 
-				if tt.runErr {
-					if status.IsSuccess() {
-						t.Errorf("Expected status to be non-success.")
-					}
-				} else {
-					if !status.IsSuccess() {
-						t.Errorf("Expected status to be success.")
-					}
-					if !reflect.DeepEqual(tt.input, tt.want) {
-						t.Errorf("Score map after RunNormalizeScorePlugin: %+v, want: %+v.", tt.input, tt.want)
-					}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f, err := NewFramework(registry, tt.plugins, args)
+			if err != nil {
+				t.Fatalf("Failed to create framework for testing: %v", err)
+			}
+
+			status := f.ApplyScoreWeights(pc, pod, tt.input)
+
+			if tt.err {
+				if status.IsSuccess() {
+					t.Errorf("Expected status to be non-success.")
+				}
+			} else {
+				if !status.IsSuccess() {
+					t.Errorf("Expected status to be success.")
+				}
+				if !reflect.DeepEqual(tt.input, tt.want) {
+					t.Errorf("Score map after RunNormalizeScorePlugin: %+v, want: %+v.", tt.input, tt.want)
 				}
 			}
 		})
