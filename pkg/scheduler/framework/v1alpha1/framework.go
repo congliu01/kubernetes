@@ -403,7 +403,7 @@ func (f *framework) ApplyScoreWeights(pc *PluginContext, pod *v1.Pod, scores Plu
 		weight := f.pluginNameToWeightMap[pl.Name()]
 		nodeScoreList, ok := scores[pl.Name()]
 		if !ok {
-			err := fmt.Errorf("score plugin %v has no corresponding scores in the PluginToNodeScoreMap.", pl.Name())
+			err := fmt.Errorf("score plugin %v has no corresponding scores in the PluginToNodeScoreMap", pl.Name())
 			errCh.SendErrorWithCancel(err, cancel)
 		}
 		for i := range nodeScoreList {
