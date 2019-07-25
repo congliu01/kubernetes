@@ -39,7 +39,10 @@ filegroup(
 
 go_test(
     name = "go_default_test",
-    srcs = ["interface_test.go", "framework_test.go"],
+    srcs = [
+        "interface_test.go",
+        "framework_test.go",
+    ],
     embed = [":go_default_library"],
     deps = [
         "//pkg/scheduler/apis/config:go_default_library",
