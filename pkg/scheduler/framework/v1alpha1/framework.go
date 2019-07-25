@@ -132,6 +132,7 @@ func NewFramework(r Registry, plugins *config.Plugins, args []config.PluginConfi
 	if plugins.Score != nil {
 		for _, sc := range plugins.Score.Enabled {
 			if pg, ok := pluginsMap[sc.Name]; ok {
+				// First, make sure the plugin implements ScorePlugin interface.
 				p, ok := pg.(ScorePlugin)
 				if !ok {
 					return nil, fmt.Errorf("plugin %v does not extend score plugin", sc.Name)
@@ -140,31 +141,15 @@ func NewFramework(r Registry, plugins *config.Plugins, args []config.PluginConfi
 					return nil, fmt.Errorf("score plugin %v is not configured with weight", p.Name())
 				}
 				f.scorePlugins = append(f.scorePlugins, p)
+
+				// Next, if the plugin also implements ScoreWithNormalizeScorePlugin
+				// interface, add it to the normalizeScore plugin list.
+				np, ok := pg.(ScoreWithNormalizePlugin)
+				if ok {
+					f.scoreWithNormalizePlugins = append(f.scoreWithNormalizePlugins, np)
+				}
 			} else {
 				return nil, fmt.Errorf("score plugin %v does not exist", sc.Name)
-			}
-		}
-	}
-
-	if plugins.NormalizeScore != nil {
-		enabledScorePlugins := make(map[string]struct{}, len(f.scorePlugins))
-		for _, sp := range f.scorePlugins {
-			enabledScorePlugins[sp.Name()] = struct{}{}
-		}
-		for _, ns := range plugins.NormalizeScore.Enabled {
-			if pg, ok := pluginsMap[ns.Name]; ok {
-				p, ok := pg.(ScoreWithNormalizePlugin)
-				if !ok {
-					return nil, fmt.Errorf("plugin %v does not extend normalize score plugin", ns.Name)
-				}
-
-				if _, exist := enabledScorePlugins[p.Name()]; !exist {
-					return nil, fmt.Errorf("plugin %v is not enabled as a score plugin", ns.Name)
-				}
-
-				f.scoreWithNormalizePlugins = append(f.scoreWithNormalizePlugins, p)
-			} else {
-				return nil, fmt.Errorf("normalize score plugin %v does not exist", ns.Name)
 			}
 		}
 	}
@@ -603,7 +588,6 @@ func pluginsNeeded(plugins *config.Plugins) map[string]config.Plugin {
 	find(plugins.Filter)
 	find(plugins.PostFilter)
 	find(plugins.Score)
-	find(plugins.NormalizeScore)
 	find(plugins.Reserve)
 	find(plugins.Permit)
 	find(plugins.PreBind)

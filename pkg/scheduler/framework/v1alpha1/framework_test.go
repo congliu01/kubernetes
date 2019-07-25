@@ -26,29 +26,34 @@ import (
 )
 
 const (
-	scorePlugin1 = "score-plugin-1"
-	scorePlugin2 = "score-plugin-2"
-	scorePlugin3 = "score-plugin-3"
-	weight1      = 2
-	weight2      = 3
+	scorePlugin1               = "score-plugin-1"
+	scorePlugin2               = "score-plugin-2"
+	scorePlugin3              = "score-plugin-3"
+	pluginNotImplementingScore = "plugin-not-implementing-score"
+	weight1                    = 2
+	weight2                    = 3
+	weight3                    = 4
 )
 
+// TestScorePlugin1 and 2 implements ScoreWithNormalizePlugin interface,
+// TestScorePlugin3 only implements ScorePlugin interface.
 var _ = ScoreWithNormalizePlugin(&TestScorePlugin1{})
 var _ = ScoreWithNormalizePlugin(&TestScorePlugin2{})
+var _ = ScorePlugin(&TestScorePlugin3{})
 
 type TestScorePlugin1 struct {
 	// If fail is true, NormalizeScore will return error status.
 	fail bool
 }
 
-// NewNormalizeScorePlugin1 is the factory for NormalizeScore plugin 1.
-func NewNormalizeScorePlugin1(_ *runtime.Unknown, _ FrameworkHandle) (Plugin, error) {
+// NewScorePlugin1 is the factory for NormalizeScore plugin 1.
+func NewScorePlugin1(_ *runtime.Unknown, _ FrameworkHandle) (Plugin, error) {
 	return &TestScorePlugin1{}, nil
 }
 
-// NewNormalizeScorePlugin1InjectFailure creates a new TestScorePlugin1 which will
+// NewScorePlugin1InjectFailure creates a new TestScorePlugin1 which will
 // return an error status for NormalizeScore.
-func NewNormalizeScorePlugin1InjectFailure(_ *runtime.Unknown, _ FrameworkHandle) (Plugin, error) {
+func NewScorePlugin1InjectFailure(_ *runtime.Unknown, _ FrameworkHandle) (Plugin, error) {
 	return &TestScorePlugin1{fail: true}, nil
 }
 
@@ -74,8 +79,8 @@ func (pl *TestScorePlugin1) Score(pc *PluginContext, p *v1.Pod, nodeName string)
 
 type TestScorePlugin2 struct{}
 
-// NewNormalizeScorePlugin2 is the factory for NormalizeScore plugin 2.
-func NewNormalizeScorePlugin2(_ *runtime.Unknown, _ FrameworkHandle) (Plugin, error) {
+// NewScorePlugin2 is the factory for NormalizeScore plugin 2.
+func NewScorePlugin2(_ *runtime.Unknown, _ FrameworkHandle) (Plugin, error) {
 	return &TestScorePlugin2{}, nil
 }
 
@@ -96,11 +101,11 @@ func (pl *TestScorePlugin2) Score(pc *PluginContext, p *v1.Pod, nodeName string)
 	return 0, nil
 }
 
-// TestScorePlugin3 only implements Score but not NormalizeScore plugin interface.
+// TestScorePlugin3 only implements ScorePlugin interface.
 type TestScorePlugin3 struct{}
 
-// NewNormalizeScorePlugin3 is the factory for NormalizeScore plugin 3.
-func NewNormalizeScorePlugin3(_ *runtime.Unknown, _ FrameworkHandle) (Plugin, error) {
+// NewScorePlugin3 is the factory for Score plugin 3.
+func NewScorePlugin3(_ *runtime.Unknown, _ FrameworkHandle) (Plugin, error) {
 	return &TestScorePlugin3{}, nil
 }
 
@@ -113,10 +118,23 @@ func (pl *TestScorePlugin3) Score(pc *PluginContext, p *v1.Pod, nodeName string)
 	return 0, nil
 }
 
+// PluginNotImplementingScore doesn't implement the ScorePlugin interface.
+type PluginNotImplementingScore struct{}
+
+// NewPluginNotImplementingScore is the factory for PluginNotImplementingScore.
+func NewPluginNotImplementingScore(_ *runtime.Unknown, _ FrameworkHandle) (Plugin, error) {
+	return &PluginNotImplementingScore{}, nil
+}
+
+func (pl *PluginNotImplementingScore) Name() string {
+	return pluginNotImplementingScore
+}
+
 var registry = Registry{
-	scorePlugin1: NewNormalizeScorePlugin1,
-	scorePlugin2: NewNormalizeScorePlugin2,
-	scorePlugin3: NewNormalizeScorePlugin3,
+	scorePlugin1:               NewScorePlugin1,
+	scorePlugin2:               NewScorePlugin2,
+	scorePlugin3:               NewScorePlugin3,
+	pluginNotImplementingScore: NewPluginNotImplementingScore,
 }
 
 var plugin1 = &config.Plugins{
@@ -125,9 +143,11 @@ var plugin1 = &config.Plugins{
 			{Name: scorePlugin1, Weight: weight1},
 		},
 	},
-	NormalizeScore: &config.PluginSet{
+}
+var plugin3 = &config.Plugins{
+	Score: &config.PluginSet{
 		Enabled: []config.Plugin{
-			{Name: scorePlugin1, Weight: weight1},
+			{Name: scorePlugin3, Weight: weight3},
 		},
 	},
 }
@@ -138,10 +158,12 @@ var plugin1And2 = &config.Plugins{
 			{Name: scorePlugin2, Weight: weight2},
 		},
 	},
-	NormalizeScore: &config.PluginSet{
+}
+var plugin1And3 = &config.Plugins{
+	Score: &config.PluginSet{
 		Enabled: []config.Plugin{
 			{Name: scorePlugin1, Weight: weight1},
-			{Name: scorePlugin2, Weight: weight2},
+			{Name: scorePlugin3, Weight: weight3},
 		},
 	},
 }
@@ -153,7 +175,7 @@ var pc = &PluginContext{}
 // Pod is only used for logging errors.
 var pod = &v1.Pod{}
 
-func TestInitFrameworkWithNormalizeScorePlugins(t *testing.T) {
+func TestInitFrameworkWithScorePlugins(t *testing.T) {
 	tests := []struct {
 		name    string
 		plugins *config.Plugins
@@ -161,9 +183,9 @@ func TestInitFrameworkWithNormalizeScorePlugins(t *testing.T) {
 		initErr bool
 	}{
 		{
-			name: "enabled NormalizeScore plugin doesn't exist in registry",
+			name: "enabled Score plugin doesn't exist in registry",
 			plugins: &config.Plugins{
-				NormalizeScore: &config.PluginSet{
+				Score: &config.PluginSet{
 					Enabled: []config.Plugin{
 						{Name: "notExist"},
 					},
@@ -172,41 +194,45 @@ func TestInitFrameworkWithNormalizeScorePlugins(t *testing.T) {
 			initErr: true,
 		},
 		{
-			name: "enabled NormalizeScore plugin doesn't extend the interface",
+			name: "enabled Score plugin doesn't extend the ScorePlugin interface",
+			plugins: &config.Plugins{
+				Score: &config.PluginSet{
+					Enabled: []config.Plugin{
+						{Name: pluginNotImplementingScore},
+					},
+				},
+			},
+			initErr: true,
+		},
+		{
+			name:    "Score plugins are nil",
+			plugins: &config.Plugins{Score: nil},
+		},
+		{
+			name: "enabled Score plugin list is empty",
+			plugins: &config.Plugins{
+				Score: &config.PluginSet{
+					Enabled: []config.Plugin{},
+				},
+			},
+		},
+		{
+			name: "enabled plugin only implements ScorePlugin interface",
 			plugins: &config.Plugins{
 				Score: &config.PluginSet{
 					Enabled: []config.Plugin{
 						{Name: scorePlugin3},
 					},
 				},
-				NormalizeScore: &config.PluginSet{
-					Enabled: []config.Plugin{
-						{Name: scorePlugin3},
-					},
-				},
 			},
-			initErr: true,
 		},
 		{
-			name: "enabled NormalizeScore plugin is not enabled as Score plugin",
+			name: "enabled plugin implements ScoreWithNormalizePlugin interface",
 			plugins: &config.Plugins{
-				NormalizeScore: &config.PluginSet{
+				Score: &config.PluginSet{
 					Enabled: []config.Plugin{
 						{Name: scorePlugin1},
 					},
-				},
-			},
-			initErr: true,
-		},
-		{
-			name:    "NormalizeScore plugins are nil",
-			plugins: &config.Plugins{NormalizeScore: nil},
-		},
-		{
-			name: "enabled NormalizeScore plugin list is empty",
-			plugins: &config.Plugins{
-				NormalizeScore: &config.PluginSet{
-					Enabled: []config.Plugin{},
 				},
 			},
 		},
@@ -236,24 +262,8 @@ func TestRunNormalizeScorePlugins(t *testing.T) {
 		err bool
 	}{
 		{
-			name:     "NormalizeScore plugins are nil",
-			plugins:  &config.Plugins{NormalizeScore: nil},
-			registry: registry,
-			input: PluginToNodeScoreMap{
-				scorePlugin1: {2, 3},
-			},
-			// No NormalizeScore plugin, map should be untouched.
-			want: PluginToNodeScoreMap{
-				scorePlugin1: {2, 3},
-			},
-		},
-		{
-			name: "enabled NormalizeScore plugin list is empty",
-			plugins: &config.Plugins{
-				NormalizeScore: &config.PluginSet{
-					Enabled: []config.Plugin{},
-				},
-			},
+			name:     "no NormalizeScore plugins",
+			plugins:  plugin3,
 			registry: registry,
 			input: PluginToNodeScoreMap{
 				scorePlugin1: {2, 3},
@@ -293,23 +303,23 @@ func TestRunNormalizeScorePlugins(t *testing.T) {
 		{
 			name:     "2 Score plugins, 1 NormalizeScore plugin",
 			registry: registry,
-			plugins:  plugin1,
+			plugins:  plugin1And3,
 			input: PluginToNodeScoreMap{
 				scorePlugin1: {2, 3},
-				scorePlugin2: {2, 4},
+				scorePlugin3: {2, 4},
 			},
 			want: PluginToNodeScoreMap{
 				// For plugin1, want=input-1.
 				scorePlugin1: {1, 2},
-				// No NormalizeScore for plugin 2. The node scores are untouched.
-				scorePlugin2: {2, 4},
+				// No NormalizeScore for plugin 3. The node scores are untouched.
+				scorePlugin3: {2, 4},
 			},
 		},
 		{
 			name: "score map contains both test plugin 1 and 2 but plugin 1 fails",
 			registry: Registry{
-				scorePlugin1: NewNormalizeScorePlugin1InjectFailure,
-				scorePlugin2: NewNormalizeScorePlugin2,
+				scorePlugin1: NewScorePlugin1InjectFailure,
+				scorePlugin2: NewScorePlugin2,
 			},
 			plugins: plugin1And2,
 			input: PluginToNodeScoreMap{

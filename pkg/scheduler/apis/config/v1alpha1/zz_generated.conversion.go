@@ -25,7 +25,6 @@ import (
 
 	conversion "k8s.io/apimachinery/pkg/conversion"
 	runtime "k8s.io/apimachinery/pkg/runtime"
-	configv1alpha1 "k8s.io/component-base/config/v1alpha1"
 	v1alpha1 "k8s.io/kube-scheduler/config/v1alpha1"
 	config "k8s.io/kubernetes/pkg/scheduler/apis/config"
 )
@@ -149,18 +148,28 @@ func autoConvert_v1alpha1_KubeSchedulerConfiguration_To_config_KubeSchedulerConf
 	if err := Convert_v1alpha1_KubeSchedulerLeaderElectionConfiguration_To_config_KubeSchedulerLeaderElectionConfiguration(&in.LeaderElection, &out.LeaderElection, s); err != nil {
 		return err
 	}
-	if err := configv1alpha1.Convert_v1alpha1_ClientConnectionConfiguration_To_config_ClientConnectionConfiguration(&in.ClientConnection, &out.ClientConnection, s); err != nil {
+	// TODO: Inefficient conversion - can we improve it?
+	if err := s.Convert(&in.ClientConnection, &out.ClientConnection, 0); err != nil {
 		return err
 	}
 	out.HealthzBindAddress = in.HealthzBindAddress
 	out.MetricsBindAddress = in.MetricsBindAddress
-	if err := configv1alpha1.Convert_v1alpha1_DebuggingConfiguration_To_config_DebuggingConfiguration(&in.DebuggingConfiguration, &out.DebuggingConfiguration, s); err != nil {
+	// TODO: Inefficient conversion - can we improve it?
+	if err := s.Convert(&in.DebuggingConfiguration, &out.DebuggingConfiguration, 0); err != nil {
 		return err
 	}
 	out.DisablePreemption = in.DisablePreemption
 	out.PercentageOfNodesToScore = in.PercentageOfNodesToScore
 	out.BindTimeoutSeconds = (*int64)(unsafe.Pointer(in.BindTimeoutSeconds))
-	out.Plugins = (*config.Plugins)(unsafe.Pointer(in.Plugins))
+	if in.Plugins != nil {
+		in, out := &in.Plugins, &out.Plugins
+		*out = new(config.Plugins)
+		if err := Convert_v1alpha1_Plugins_To_config_Plugins(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.Plugins = nil
+	}
 	out.PluginConfig = *(*[]config.PluginConfig)(unsafe.Pointer(&in.PluginConfig))
 	return nil
 }
@@ -179,18 +188,28 @@ func autoConvert_config_KubeSchedulerConfiguration_To_v1alpha1_KubeSchedulerConf
 	if err := Convert_config_KubeSchedulerLeaderElectionConfiguration_To_v1alpha1_KubeSchedulerLeaderElectionConfiguration(&in.LeaderElection, &out.LeaderElection, s); err != nil {
 		return err
 	}
-	if err := configv1alpha1.Convert_config_ClientConnectionConfiguration_To_v1alpha1_ClientConnectionConfiguration(&in.ClientConnection, &out.ClientConnection, s); err != nil {
+	// TODO: Inefficient conversion - can we improve it?
+	if err := s.Convert(&in.ClientConnection, &out.ClientConnection, 0); err != nil {
 		return err
 	}
 	out.HealthzBindAddress = in.HealthzBindAddress
 	out.MetricsBindAddress = in.MetricsBindAddress
-	if err := configv1alpha1.Convert_config_DebuggingConfiguration_To_v1alpha1_DebuggingConfiguration(&in.DebuggingConfiguration, &out.DebuggingConfiguration, s); err != nil {
+	// TODO: Inefficient conversion - can we improve it?
+	if err := s.Convert(&in.DebuggingConfiguration, &out.DebuggingConfiguration, 0); err != nil {
 		return err
 	}
 	out.DisablePreemption = in.DisablePreemption
 	out.PercentageOfNodesToScore = in.PercentageOfNodesToScore
 	out.BindTimeoutSeconds = (*int64)(unsafe.Pointer(in.BindTimeoutSeconds))
-	out.Plugins = (*v1alpha1.Plugins)(unsafe.Pointer(in.Plugins))
+	if in.Plugins != nil {
+		in, out := &in.Plugins, &out.Plugins
+		*out = new(v1alpha1.Plugins)
+		if err := Convert_config_Plugins_To_v1alpha1_Plugins(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.Plugins = nil
+	}
 	out.PluginConfig = *(*[]v1alpha1.PluginConfig)(unsafe.Pointer(&in.PluginConfig))
 	return nil
 }
@@ -201,7 +220,8 @@ func Convert_config_KubeSchedulerConfiguration_To_v1alpha1_KubeSchedulerConfigur
 }
 
 func autoConvert_v1alpha1_KubeSchedulerLeaderElectionConfiguration_To_config_KubeSchedulerLeaderElectionConfiguration(in *v1alpha1.KubeSchedulerLeaderElectionConfiguration, out *config.KubeSchedulerLeaderElectionConfiguration, s conversion.Scope) error {
-	if err := configv1alpha1.Convert_v1alpha1_LeaderElectionConfiguration_To_config_LeaderElectionConfiguration(&in.LeaderElectionConfiguration, &out.LeaderElectionConfiguration, s); err != nil {
+	// TODO: Inefficient conversion - can we improve it?
+	if err := s.Convert(&in.LeaderElectionConfiguration, &out.LeaderElectionConfiguration, 0); err != nil {
 		return err
 	}
 	out.LockObjectNamespace = in.LockObjectNamespace
@@ -215,7 +235,8 @@ func Convert_v1alpha1_KubeSchedulerLeaderElectionConfiguration_To_config_KubeSch
 }
 
 func autoConvert_config_KubeSchedulerLeaderElectionConfiguration_To_v1alpha1_KubeSchedulerLeaderElectionConfiguration(in *config.KubeSchedulerLeaderElectionConfiguration, out *v1alpha1.KubeSchedulerLeaderElectionConfiguration, s conversion.Scope) error {
-	if err := configv1alpha1.Convert_config_LeaderElectionConfiguration_To_v1alpha1_LeaderElectionConfiguration(&in.LeaderElectionConfiguration, &out.LeaderElectionConfiguration, s); err != nil {
+	// TODO: Inefficient conversion - can we improve it?
+	if err := s.Convert(&in.LeaderElectionConfiguration, &out.LeaderElectionConfiguration, 0); err != nil {
 		return err
 	}
 	out.LockObjectNamespace = in.LockObjectNamespace
@@ -300,7 +321,7 @@ func autoConvert_v1alpha1_Plugins_To_config_Plugins(in *v1alpha1.Plugins, out *c
 	out.Filter = (*config.PluginSet)(unsafe.Pointer(in.Filter))
 	out.PostFilter = (*config.PluginSet)(unsafe.Pointer(in.PostFilter))
 	out.Score = (*config.PluginSet)(unsafe.Pointer(in.Score))
-	out.NormalizeScore = (*config.PluginSet)(unsafe.Pointer(in.NormalizeScore))
+	// WARNING: in.NormalizeScore requires manual conversion: does not exist in peer-type
 	out.Reserve = (*config.PluginSet)(unsafe.Pointer(in.Reserve))
 	out.Permit = (*config.PluginSet)(unsafe.Pointer(in.Permit))
 	out.PreBind = (*config.PluginSet)(unsafe.Pointer(in.PreBind))
@@ -310,18 +331,12 @@ func autoConvert_v1alpha1_Plugins_To_config_Plugins(in *v1alpha1.Plugins, out *c
 	return nil
 }
 
-// Convert_v1alpha1_Plugins_To_config_Plugins is an autogenerated conversion function.
-func Convert_v1alpha1_Plugins_To_config_Plugins(in *v1alpha1.Plugins, out *config.Plugins, s conversion.Scope) error {
-	return autoConvert_v1alpha1_Plugins_To_config_Plugins(in, out, s)
-}
-
 func autoConvert_config_Plugins_To_v1alpha1_Plugins(in *config.Plugins, out *v1alpha1.Plugins, s conversion.Scope) error {
 	out.QueueSort = (*v1alpha1.PluginSet)(unsafe.Pointer(in.QueueSort))
 	out.PreFilter = (*v1alpha1.PluginSet)(unsafe.Pointer(in.PreFilter))
 	out.Filter = (*v1alpha1.PluginSet)(unsafe.Pointer(in.Filter))
 	out.PostFilter = (*v1alpha1.PluginSet)(unsafe.Pointer(in.PostFilter))
 	out.Score = (*v1alpha1.PluginSet)(unsafe.Pointer(in.Score))
-	out.NormalizeScore = (*v1alpha1.PluginSet)(unsafe.Pointer(in.NormalizeScore))
 	out.Reserve = (*v1alpha1.PluginSet)(unsafe.Pointer(in.Reserve))
 	out.Permit = (*v1alpha1.PluginSet)(unsafe.Pointer(in.Permit))
 	out.PreBind = (*v1alpha1.PluginSet)(unsafe.Pointer(in.PreBind))

@@ -39,8 +39,12 @@ type PrefilterPlugin struct {
 type ScorePlugin struct {
 	failScore               bool
 	numScoreCalled          int
-	numNormalizeScoreCalled int
 	highScoreNode           string
+}
+
+type ScoreWithNormalizePlugin struct {
+	numScoreCalled          int
+	numNormalizeScoreCalled int
 }
 
 type FilterPlugin struct {
@@ -92,6 +96,7 @@ type PermitPlugin struct {
 const (
 	prefilterPluginName = "prefilter-plugin"
 	scorePluginName     = "score-plugin"
+	scoreWithNormalizePluginName     = "score-with-normalize-plugin"
 	filterPluginName    = "filter-plugin"
 	reservePluginName   = "reserve-plugin"
 	prebindPluginName   = "prebind-plugin"
@@ -103,13 +108,21 @@ const (
 var _ = framework.PrefilterPlugin(&PrefilterPlugin{})
 var _ = framework.ScorePlugin(&ScorePlugin{})
 var _ = framework.FilterPlugin(&FilterPlugin{})
-var _ = framework.ScoreWithNormalizePlugin(&ScorePlugin{})
+var _ = framework.ScorePlugin(&ScorePlugin{})
+var _ = framework.ScoreWithNormalizePlugin(&ScoreWithNormalizePlugin{})
 var _ = framework.ReservePlugin(&ReservePlugin{})
 var _ = framework.PrebindPlugin(&PrebindPlugin{})
 var _ = framework.BindPlugin(&BindPlugin{})
 var _ = framework.PostbindPlugin(&PostbindPlugin{})
 var _ = framework.UnreservePlugin(&UnreservePlugin{})
 var _ = framework.PermitPlugin(&PermitPlugin{})
+
+var scPlugin = &ScorePlugin{}
+
+// NewScorePlugin is the factory for score plugin.
+func NewScorePlugin(_ *runtime.Unknown, _ framework.FrameworkHandle) (framework.Plugin, error) {
+	return scPlugin, nil
+}
 
 // Name returns name of the score plugin.
 func (sp *ScorePlugin) Name() string {
@@ -120,11 +133,8 @@ func (sp *ScorePlugin) Name() string {
 func (sp *ScorePlugin) reset() {
 	sp.failScore = false
 	sp.numScoreCalled = 0
-	sp.numNormalizeScoreCalled = 0
 	sp.highScoreNode = ""
 }
-
-var scPlugin = &ScorePlugin{}
 
 // Score returns the score of scheduling a pod on a specific node.
 func (sp *ScorePlugin) Score(pc *framework.PluginContext, p *v1.Pod, nodeName string) (int, *framework.Status) {
@@ -142,9 +152,36 @@ func (sp *ScorePlugin) Score(pc *framework.PluginContext, p *v1.Pod, nodeName st
 	return score, nil
 }
 
-// NewScorePlugin is the factory for score plugin.
-func NewScorePlugin(_ *runtime.Unknown, _ framework.FrameworkHandle) (framework.Plugin, error) {
-	return scPlugin, nil
+var scoreWithNormalizePlguin = &ScoreWithNormalizePlugin{}
+
+
+// Name returns name of the score plugin.
+func (sp *ScoreWithNormalizePlugin) Name() string {
+	return scoreWithNormalizePluginName
+}
+
+// reset returns name of the score plugin.
+func (sp *ScoreWithNormalizePlugin) reset() {
+	sp.numScoreCalled = 0
+	sp.numNormalizeScoreCalled = 0
+}
+
+
+// Score returns the score of scheduling a pod on a specific node.
+func (sp *ScoreWithNormalizePlugin) Score(pc *framework.PluginContext, p *v1.Pod, nodeName string) (int, *framework.Status) {
+	sp.numScoreCalled++
+	score := 10
+	return score, nil
+}
+
+func (sp *ScoreWithNormalizePlugin) NormalizeScore(pc *framework.PluginContext, scores framework.NodeScoreList) *framework.Status {
+	sp.numNormalizeScoreCalled++
+	return nil
+}
+
+// NewScoreWithNormalizePlugin is the factory for score with normalize plugin.
+func NewScoreWithNormalizePlugin(_ *runtime.Unknown, _ framework.FrameworkHandle) (framework.Plugin, error) {
+	return scoreWithNormalizePlguin, nil
 }
 
 var filterPlugin = &FilterPlugin{}
@@ -175,11 +212,6 @@ func (fp *FilterPlugin) Filter(pc *framework.PluginContext, pod *v1.Pod, nodeNam
 // NewFilterPlugin is the factory for filtler plugin.
 func NewFilterPlugin(_ *runtime.Unknown, _ framework.FrameworkHandle) (framework.Plugin, error) {
 	return filterPlugin, nil
-}
-
-func (sp *ScorePlugin) NormalizeScore(pc *framework.PluginContext, scores framework.NodeScoreList) *framework.Status {
-	sp.numNormalizeScoreCalled++
-	return nil
 }
 
 // Name returns name of the plugin.
@@ -547,14 +579,7 @@ func TestNormalizeScorePlugin(t *testing.T) {
 		Score: &schedulerconfig.PluginSet{
 			Enabled: []schedulerconfig.Plugin{
 				{
-					Name: scorePluginName,
-				},
-			},
-		},
-		NormalizeScore: &schedulerconfig.PluginSet{
-			Enabled: []schedulerconfig.Plugin{
-				{
-					Name: scorePluginName,
+					Name: scoreWithNormalizePluginName,
 				},
 			},
 		},
@@ -573,10 +598,10 @@ func TestNormalizeScorePlugin(t *testing.T) {
 		t.Errorf("Expected the pod to be scheduled. error: %v", err)
 	}
 
-	if scPlugin.numScoreCalled == 0 {
+	if scoreWithNormalizePlguin.numScoreCalled == 0 {
 		t.Errorf("Expected the score plugin to be called.")
 	}
-	if scPlugin.numNormalizeScoreCalled == 0 {
+	if scoreWithNormalizePlguin.numNormalizeScoreCalled == 0 {
 		t.Error("Expected the normalize score plugin to be called")
 	}
 
