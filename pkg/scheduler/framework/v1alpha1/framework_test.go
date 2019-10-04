@@ -21,6 +21,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,6 +38,7 @@ const (
 	preFilterPluginName               = "prefilter-plugin"
 	preFilterWithExtensionsPluginName = "prefilter-with-extensions-plugin"
 	duplicatePluginName               = "duplicate-plugin"
+	testPlugin = "test-plugin"
 )
 
 // TestScoreWithNormalizePlugin implements ScoreWithNormalizePlugin interface.
@@ -117,6 +119,56 @@ type PluginNotImplementingScore struct{}
 func (pl *PluginNotImplementingScore) Name() string {
 	return pluginNotImplementingScore
 }
+
+// TestPlugin implements all Plugin interfaces.
+type TestPlugin struct {
+	name string
+	inj  injectedResult
+}
+
+func (pl *TestPlugin) Name() string {
+	return pl.name
+}
+
+func (pl *TestPlugin) Score(state *CycleState, p *v1.Pod, nodeName string) (int, *Status) {
+	return setScoreRes(pl.inj)
+}
+
+func (pl *TestPlugin) ScoreExtensions() ScoreExtensions {
+	return nil
+}
+
+func (pl *TestPlugin) PreFilter(state *CycleState, p *v1.Pod) *Status {
+	return nil
+}
+func (pl *TestPlugin) PreFilterExtensions() PreFilterExtensions {
+	return nil
+}
+func (pl *TestPlugin) Filter(state *CycleState, pod *v1.Pod, nodeInfo *schedulernodeinfo.NodeInfo) *Status {
+	return nil
+}
+func (pl *TestPlugin) PostFilter(state *CycleState, pod *v1.Pod, nodes []*v1.Node, filteredNodesStatuses NodeToStatusMap) *Status {
+	return nil
+}
+func (pl *TestPlugin) Reserve(state *CycleState, p *v1.Pod, nodeName string) *Status {
+	return nil
+}
+func (pl *TestPlugin) PreBind(state *CycleState, p *v1.Pod, nodeName string) *Status {
+	return nil
+}
+func (pl *TestPlugin) PostBind(state *CycleState, p *v1.Pod, nodeName string) {
+	return nil
+}
+func (pl *TestPlugin) Unreserve(state *CycleState, p *v1.Pod, nodeName string) {
+	return nil
+}
+func (pl *TestPlugin) Permit(state *CycleState, p *v1.Pod, nodeName string) (*Status, time.Duration) {
+	return nil
+}
+func (pl *TestPlugin) Bind(state *CycleState, p *v1.Pod, nodeName string) *Status {
+	return nil
+}
+
 
 // TestPreFilterPlugin only implements PreFilterPlugin interface.
 type TestPreFilterPlugin struct {
@@ -510,6 +562,14 @@ func TestPreFilterPlugins(t *testing.T) {
 
 }
 
+func TestRecordingMetrics(t *testing.T) {
+	fsdffd
+	f, err := NewFramework(registry, tt.plugins, tt.pluginConfigs)
+	if err != nil {
+		t.Fatalf("Failed to create framework for testing: %v", err)
+	}
+}
+
 func buildConfigDefaultWeights(ps ...string) *config.Plugins {
 	return buildConfigWithWeights(defaultWeights, ps...)
 }
@@ -523,22 +583,31 @@ func buildConfigWithWeights(weights map[string]int32, ps ...string) *config.Plug
 }
 
 type injectedResult struct {
-	ScoreRes     int   `json:"scoreRes,omitempty"`
-	NormalizeRes int64 `json:"normalizeRes,omitempty"`
-	ScoreErr     bool  `json:"scoreErr,omitempty"`
-	NormalizeErr bool  `json:"normalizeErr,omitempty"`
+	ScoreRes        int   `json:"scoreRes,omitempty"`
+	NormalizeRes    int64 `json:"normalizeRes,omitempty"`
+	ScoreStatus     Code  `json:"scoreErr,omitempty"`
+	NormalizeStatus Code  `json:"normalizeErr,omitempty"`
+	PrefilterStatus     Code  `json:"scoreErr,omitempty"`
+	FilterStatus     Code  `json:"scoreErr,omitempty"`
+	PostFilterStatus     Code  `json:"scoreErr,omitempty"`
+	ReserveStatus     Code  `json:"scoreErr,omitempty"`
+	PreBindStatus     Code  `json:"scoreErr,omitempty"`
+	BindStatus     Code  `json:"scoreErr,omitempty"`
+	PostBindStatus     Code  `json:"scoreErr,omitempty"`
+	UnreserveStatus     Code  `json:"scoreErr,omitempty"`
+	PermitStatus     Code  `json:"scoreErr,omitempty"`
 }
 
 func setScoreRes(inj injectedResult) (int, *Status) {
-	if inj.ScoreErr {
-		return 0, NewStatus(Error, "injecting failure.")
+	if inj.ScoreStatus != Success {
+		return 0, NewStatus(inj.ScoreStatus, "injecting failure.")
 	}
 	return inj.ScoreRes, nil
 }
 
 func injectNormalizeRes(inj injectedResult, scores NodeScoreList) *Status {
-	if inj.NormalizeErr {
-		return NewStatus(Error, "injecting failure.")
+	if inj.NormalizeStatus != Success {
+		return NewStatus(inj.ScoreStatus, "injecting failure.")
 	}
 	for i := range scores {
 		scores[i].Score = inj.NormalizeRes
