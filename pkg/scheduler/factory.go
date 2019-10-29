@@ -433,6 +433,7 @@ func (c *Configurator) CreateFromKeys(predicateKeys, priorityKeys sets.String, e
 		framework.WithClientSet(c.client),
 		framework.WithInformerFactory(c.informerFactory),
 		framework.WithSnapshotSharedLister(c.nodeInfoSnapshot),
+		framework.WithMetricsRecorder(framework.NewMetricsRecorder(1000)),
 	)
 	if err != nil {
 		klog.Fatalf("error initializing the scheduling framework: %v", err)

@@ -714,6 +714,10 @@ func TestRecordingMetrics(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			metrics.Register()
+			metrics.FrameworkExtensionPointDuration.Reset()
+			metrics.PluginExecutionDuration.Reset()
+
 			plugin := &TestPlugin{name: testPlugin, inj: tt.inject}
 			r := make(Registry)
 			r.Register(testPlugin,
@@ -733,16 +737,22 @@ func TestRecordingMetrics(t *testing.T) {
 				PostBind:   pluginSet,
 				Unreserve:  pluginSet,
 			}
-			f, err := NewFramework(r, plugins, emptyArgs)
+			recorder := NewMetricsRecorder(100)
+			f, err := NewFramework(r, plugins, emptyArgs, WithMetricsRecorder(recorder))
 			if err != nil {
 				t.Fatalf("Failed to create framework for testing: %v", err)
 			}
-			metrics.Register()
-			metrics.FrameworkExtensionPointDuration.Reset()
 
 			tt.action(f)
 
+			// Stop the goroutine which records metrics and ensure it's stopped.
+			close(recorder.stopCh)
+			<-recorder.isStoppedCh
+			// Try to clean up the metrics buffer again in case it's not empty.
+			recorder.recordMetrics()
+
 			collectAndCompareFrameworkMetrics(t, tt.wantExtensionPoint, tt.wantStatus)
+			collectAndComparePluginMetrics(t, tt.wantExtensionPoint, testPlugin, tt.wantStatus)
 		})
 	}
 }
@@ -765,6 +775,9 @@ func TestPermitWaitingMetric(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			metrics.Register()
+			metrics.PermitWaitDuration.Reset()
+
 			plugin := &TestPlugin{name: testPlugin, inj: tt.inject}
 			r := make(Registry)
 			r.Register(testPlugin,
@@ -778,8 +791,6 @@ func TestPermitWaitingMetric(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to create framework for testing: %v", err)
 			}
-			metrics.Register()
-			metrics.PermitWaitDuration.Reset()
 
 			f.RunPermitPlugins(context.TODO(), nil, pod, "")
 
@@ -869,6 +880,34 @@ func injectNormalizeRes(inj injectedResult, scores NodeScoreList) *Status {
 	return nil
 }
 
+func collectAndComparePluginMetrics(t *testing.T, wantExtensionPoint, wantPlugin string, wantStatus Code) {
+	m := collectHistogramMetric(metrics.PluginExecutionDuration)
+	wantPlugin = "test-plugin"
+	if len(m.Label) != 3 {
+		t.Fatalf("Unexpected number of label pairs, got: %v, want: 2", len(m.Label))
+	}
+
+	if *m.Label[0].Value != wantExtensionPoint {
+		t.Errorf("Unexpected extension point label, got: %q, want %q", *m.Label[0].Value, wantExtensionPoint)
+	}
+
+	if *m.Label[1].Value != wantPlugin {
+		t.Errorf("Unexpected plugin label, got: %q, want %q", *m.Label[1].Value, wantPlugin)
+	}
+
+	if *m.Label[2].Value != wantStatus.String() {
+		t.Errorf("Unexpected status code label, got: %q, want %q", *m.Label[2].Value, wantStatus)
+	}
+
+	if *m.Histogram.SampleCount == 0 {
+		t.Error("Expect at least 1 sample")
+	}
+
+	if *m.Histogram.SampleSum <= 0 {
+		t.Errorf("Expect latency to be greater than 0, got: %v", *m.Histogram.SampleSum)
+	}
+}
+
 func collectAndCompareFrameworkMetrics(t *testing.T, wantExtensionPoint string, wantStatus Code) {
 	m := collectHistogramMetric(metrics.FrameworkExtensionPointDuration)
 
@@ -885,11 +924,11 @@ func collectAndCompareFrameworkMetrics(t *testing.T, wantExtensionPoint string, 
 	}
 
 	if *m.Histogram.SampleCount != 1 {
-		t.Errorf("Expect 1 sample, got: %v", m.Histogram.SampleCount)
+		t.Errorf("Expect 1 sample, got: %v", *m.Histogram.SampleCount)
 	}
 
 	if *m.Histogram.SampleSum <= 0 {
-		t.Errorf("Expect latency to be greater than 0, got: %v", m.Histogram.SampleSum)
+		t.Errorf("Expect latency to be greater than 0, got: %v", *m.Histogram.SampleSum)
 	}
 }
 
@@ -911,17 +950,17 @@ func collectAndComparePermitWaitDuration(t *testing.T, wantRes string) {
 		}
 
 		if *m.Histogram.SampleCount != 1 {
-			t.Errorf("Expect 1 sample, got: %v", m.Histogram.SampleCount)
+			t.Errorf("Expect 1 sample, got: %v", *m.Histogram.SampleCount)
 		}
 
 		if *m.Histogram.SampleSum <= 0 {
-			t.Errorf("Expect latency to be greater than 0, got: %v", m.Histogram.SampleSum)
+			t.Errorf("Expect latency to be greater than 0, got: %v", *m.Histogram.SampleSum)
 		}
 	}
 }
 
 func collectHistogramMetric(metric prometheus.Collector) *dto.Metric {
-	ch := make(chan prometheus.Metric, 1)
+	ch := make(chan prometheus.Metric, 100)
 	metric.Collect(ch)
 	select {
 	case got := <-ch:
