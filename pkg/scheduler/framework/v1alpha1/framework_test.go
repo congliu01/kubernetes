@@ -737,11 +737,15 @@ func TestRecordingMetrics(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to create framework for testing: %v", err)
 			}
+			// Override the metricsRecorder with a non-nil stop chan for testing purpose.
+			f.metricsRecorder = newMetricsRecorder(make(chan struct{}), 100)
+
 			metrics.Register()
 			metrics.FrameworkExtensionPointDuration.Reset()
 
 			tt.action(f)
 
+			f.metricsRecorder.tryCleanUpBuffer()
 			collectAndCompareFrameworkMetrics(t, tt.wantExtensionPoint, tt.wantStatus)
 		})
 	}
