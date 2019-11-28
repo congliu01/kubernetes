@@ -538,7 +538,7 @@ func (g *genericScheduler) findNodesThatFit(ctx context.Context, state *framewor
 
 		// Stops searching for more nodes once the configured number of feasible nodes
 		// are found.
-		workqueue.ParallelizeUntil(ctx, 16, allNodes, checkNode)
+		workqueue.ParallelizeUntil(ctx, util.DefaultNumWorkers, allNodes, checkNode)
 		processedNodes := int(filteredLen) + len(filteredNodesStatuses) + len(failedPredicateMap)
 		g.nextStartNodeIndex = (g.nextStartNodeIndex + processedNodes) % allNodes
 
@@ -752,7 +752,7 @@ func (g *genericScheduler) prioritizeNodes(
 		results[i] = make(framework.NodeScoreList, len(nodes))
 	}
 
-	workqueue.ParallelizeUntil(context.TODO(), 16, len(nodes), func(index int) {
+	workqueue.ParallelizeUntil(context.TODO(), util.DefaultNumWorkers, len(nodes), func(index int) {
 		nodeInfo := g.nodeInfoSnapshot.NodeInfoMap[nodes[index].Name]
 		for i := range g.prioritizers {
 			var err error
@@ -1033,7 +1033,7 @@ func (g *genericScheduler) selectNodesForPreemption(
 			resultLock.Unlock()
 		}
 	}
-	workqueue.ParallelizeUntil(context.TODO(), 16, len(potentialNodes), checkNode)
+	workqueue.ParallelizeUntil(context.TODO(), util.DefaultNumWorkers, len(potentialNodes), checkNode)
 	return nodeToVictims, nil
 }
 

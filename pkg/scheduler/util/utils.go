@@ -26,6 +26,8 @@ import (
 	extenderv1 "k8s.io/kubernetes/pkg/scheduler/apis/extender/v1"
 )
 
+const DefaultNumWorkers = 32
+
 // GetContainerPorts returns the used host ports of Pods: if 'port' was used, a 'port:true' pair
 // will be in the result; but it does not resolve port conflict.
 func GetContainerPorts(pods ...*v1.Pod) []*v1.ContainerPort {

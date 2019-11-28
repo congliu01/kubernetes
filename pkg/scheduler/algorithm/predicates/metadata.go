@@ -485,7 +485,7 @@ func getEvenPodsSpreadMetadata(pod *v1.Pod, allNodes []*schedulernodeinfo.NodeIn
 			addTopologyPairMatchNum(pair, matchTotal)
 		}
 	}
-	workqueue.ParallelizeUntil(context.Background(), 16, len(allNodes), processNode)
+	workqueue.ParallelizeUntil(context.Background(), schedutil.DefaultNumWorkers, len(allNodes), processNode)
 
 	// calculate min match for each topology pair
 	for i := 0; i < len(constraints); i++ {
@@ -761,7 +761,7 @@ func getTPMapMatchingExistingAntiAffinity(pod *v1.Pod, allNodes []*schedulernode
 			}
 		}
 	}
-	workqueue.ParallelizeUntil(ctx, 16, len(allNodes), processNode)
+	workqueue.ParallelizeUntil(ctx, schedutil.DefaultNumWorkers, len(allNodes), processNode)
 
 	if err := errCh.ReceiveError(); err != nil {
 		return nil, err
@@ -845,7 +845,7 @@ func getTPMapMatchingIncomingAffinityAntiAffinity(pod *v1.Pod, allNodes []*sched
 			appendResult(node.Name, nodeTopologyPairsAffinityPodsMaps, nodeTopologyPairsAntiAffinityPodsMaps)
 		}
 	}
-	workqueue.ParallelizeUntil(ctx, 16, len(allNodes), processNode)
+	workqueue.ParallelizeUntil(ctx, schedutil.DefaultNumWorkers, len(allNodes), processNode)
 
 	if err := errCh.ReceiveError(); err != nil {
 		return nil, nil, err

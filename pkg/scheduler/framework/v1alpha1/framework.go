@@ -485,7 +485,7 @@ func (f *framework) RunScorePlugins(ctx context.Context, state *CycleState, pod 
 	errCh := schedutil.NewErrorChannel()
 
 	// Run Score method for each node in parallel.
-	workqueue.ParallelizeUntil(ctx, 16, len(nodes), func(index int) {
+	workqueue.ParallelizeUntil(ctx, schedutil.DefaultNumWorkers, len(nodes), func(index int) {
 		for _, pl := range f.scorePlugins {
 			nodeName := nodes[index].Name
 			s, status := f.runScorePlugin(ctx, pl, state, pod, nodeName)
@@ -506,7 +506,7 @@ func (f *framework) RunScorePlugins(ctx context.Context, state *CycleState, pod 
 	}
 
 	// Run NormalizeScore method for each ScorePlugin in parallel.
-	workqueue.ParallelizeUntil(ctx, 16, len(f.scorePlugins), func(index int) {
+	workqueue.ParallelizeUntil(ctx, schedutil.DefaultNumWorkers, len(f.scorePlugins), func(index int) {
 		pl := f.scorePlugins[index]
 		nodeScoreList := pluginToNodeScores[pl.Name()]
 		if pl.ScoreExtensions() == nil {
@@ -526,7 +526,7 @@ func (f *framework) RunScorePlugins(ctx context.Context, state *CycleState, pod 
 	}
 
 	// Apply score defaultWeights for each ScorePlugin in parallel.
-	workqueue.ParallelizeUntil(ctx, 16, len(f.scorePlugins), func(index int) {
+	workqueue.ParallelizeUntil(ctx, schedutil.DefaultNumWorkers, len(f.scorePlugins), func(index int) {
 		pl := f.scorePlugins[index]
 		// Score plugins' weight has been checked when they are initialized.
 		weight := f.pluginNameToWeightMap[pl.Name()]

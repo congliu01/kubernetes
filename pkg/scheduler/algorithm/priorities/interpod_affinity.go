@@ -265,7 +265,7 @@ func buildTopologyPairToScore(
 			}
 		}
 	}
-	workqueue.ParallelizeUntil(ctx, 16, len(allNodes), processNode)
+	workqueue.ParallelizeUntil(ctx, schedutil.DefaultNumWorkers, len(allNodes), processNode)
 	if err := errCh.ReceiveError(); err != nil {
 		klog.Error(err)
 		return nil

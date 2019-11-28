@@ -30,6 +30,7 @@ import (
 	framework "k8s.io/kubernetes/pkg/scheduler/framework/v1alpha1"
 	schedulerlisters "k8s.io/kubernetes/pkg/scheduler/listers"
 	schedulernodeinfo "k8s.io/kubernetes/pkg/scheduler/nodeinfo"
+	"k8s.io/kubernetes/pkg/scheduler/util"
 
 	"k8s.io/klog"
 )
@@ -111,7 +112,7 @@ func buildPodTopologySpreadMap(pod *v1.Pod, filteredNodes []*v1.Node, allNodes [
 			atomic.AddInt64(m.topologyPairToPodCounts[pair], matchSum)
 		}
 	}
-	workqueue.ParallelizeUntil(context.Background(), 16, len(allNodes), processAllNode)
+	workqueue.ParallelizeUntil(context.Background(), util.DefaultNumWorkers, len(allNodes), processAllNode)
 
 	return m, nil
 }
