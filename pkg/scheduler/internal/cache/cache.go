@@ -229,13 +229,7 @@ func (cache *schedulerCache) UpdateNodeInfoSnapshot(nodeSnapshot *nodeinfosnapsh
 		nodeSnapshot.Generation = cache.headNode.info.GetGeneration()
 	}
 
-	if len(nodeSnapshot.NodeInfoMap) > len(cache.nodes) {
-		for name := range nodeSnapshot.NodeInfoMap {
-			if _, ok := cache.nodes[name]; !ok {
-				delete(nodeSnapshot.NodeInfoMap, name)
-			}
-		}
-	}
+	cache.removeDeletedNodesFromSnapshot(nodeSnapshot)
 
 	// Take a snapshot of the nodes order in the tree
 	nodeSnapshot.NodeInfoList = make([]*schedulernodeinfo.NodeInfo, 0, cache.nodeTree.numNodes)
@@ -252,6 +246,23 @@ func (cache *schedulerCache) UpdateNodeInfoSnapshot(nodeSnapshot *nodeinfosnapsh
 		}
 	}
 	return nil
+}
+
+// If certain nodes were deleted after the last snapshot was taken, we should remove them from the snapshot.
+func (cache *schedulerCache) removeDeletedNodesFromSnapshot(nodeSnapshot *nodeinfosnapshot.Snapshot) {
+	toDelete := len(nodeSnapshot.NodeInfoMap) - len(cache.nodes)
+	if toDelete > 0 {
+		deleted := 0
+		for name := range nodeSnapshot.NodeInfoMap {
+			if deleted == toDelete {
+				return
+			}
+			if _, ok := cache.nodes[name]; !ok {
+				delete(nodeSnapshot.NodeInfoMap, name)
+				deleted++
+			}
+		}
+	}
 }
 
 func (cache *schedulerCache) List(selector labels.Selector) ([]*v1.Pod, error) {
