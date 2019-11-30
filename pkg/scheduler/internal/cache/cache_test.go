@@ -1427,8 +1427,8 @@ func TestSchedulerCache_UpdateNodeInfoSnapshot(t *testing.T) {
 			}
 
 			// Check number of nodes with pods with affinity
-			if len(snapshot.HavePodsWithAffinityNodeInfoList) != test.expectedHavePodsWithAffinity {
-				t.Errorf("unexpected number of HavePodsWithAffinity nodes. Expected: %v, got: %v", test.expectedHavePodsWithAffinity, len(snapshot.HavePodsWithAffinityNodeInfoList))
+			if len(snapshot.ListNodesWithAffinityPods()) != test.expectedHavePodsWithAffinity {
+				t.Errorf("unexpected number of HavePodsWithAffinity nodes. Expected: %v, got: %v", test.expectedHavePodsWithAffinity, len(snapshot.ListNodesWithAffinityPods()))
 			}
 
 			// Always update the snapshot at the end of operations and compare it.
@@ -1459,13 +1459,13 @@ func compareCacheWithNodeInfoSnapshot(cache *schedulerCache, snapshot *nodeinfos
 	}
 
 	expectedNodeInfoList := make([]*schedulernodeinfo.NodeInfo, 0, cache.nodeTree.numNodes)
-	expectedHavePodsWithAffinityNodeInfoList := make([]*schedulernodeinfo.NodeInfo, 0, cache.nodeTree.numNodes)
+	expectedNodesWithAffinityPods := make(map[string]*schedulernodeinfo.NodeInfo)
 	for i := 0; i < cache.nodeTree.numNodes; i++ {
 		nodeName := cache.nodeTree.next()
 		if n := snapshot.NodeInfoMap[nodeName]; n != nil {
 			expectedNodeInfoList = append(expectedNodeInfoList, n)
 			if len(n.PodsWithAffinity()) > 0 {
-				expectedHavePodsWithAffinityNodeInfoList = append(expectedHavePodsWithAffinityNodeInfoList, n)
+				expectedNodesWithAffinityPods[n.Node().Name] = n
 			}
 		} else {
 			return fmt.Errorf("node %q exist in nodeTree but not in NodeInfoMap, this should not happen", nodeName)
@@ -1479,8 +1479,8 @@ func compareCacheWithNodeInfoSnapshot(cache *schedulerCache, snapshot *nodeinfos
 		}
 	}
 
-	for i, expected := range expectedHavePodsWithAffinityNodeInfoList {
-		got := snapshot.HavePodsWithAffinityNodeInfoList[i]
+	for name, expected := range expectedNodesWithAffinityPods {
+		got := snapshot.NodesWithAffinityPodsMap[name]
 		if expected != got {
 			return fmt.Errorf("unexpected NodeInfo pointer in HavePodsWithAffinityNodeInfoList. Expected: %p, got: %p", expected, got)
 		}

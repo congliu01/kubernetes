@@ -33,9 +33,11 @@ type Snapshot struct {
 	NodeInfoMap map[string]*schedulernodeinfo.NodeInfo
 	// NodeInfoList is the list of nodes as ordered in the cache's nodeTree.
 	NodeInfoList []*schedulernodeinfo.NodeInfo
-	// HavePodsWithAffinityNodeInfoList is the list of nodes with at least one pod declaring affinity terms.
-	HavePodsWithAffinityNodeInfoList []*schedulernodeinfo.NodeInfo
-	Generation                       int64
+	// NodesWithAffinityPodsMap a map of nodes with at least one pod declaring affinity terms.
+	NodesWithAffinityPodsMap  map[string]*schedulernodeinfo.NodeInfo
+	// nodesWithAffinityPodsList a list of nodes with at least one pod declaring affinity terms.
+	nodesWithAffinityPodsList []*schedulernodeinfo.NodeInfo
+	Generation                int64
 }
 
 var _ schedulerlisters.SharedLister = &Snapshot{}
@@ -44,24 +46,25 @@ var _ schedulerlisters.SharedLister = &Snapshot{}
 func NewEmptySnapshot() *Snapshot {
 	return &Snapshot{
 		NodeInfoMap: make(map[string]*schedulernodeinfo.NodeInfo),
+		NodesWithAffinityPodsMap:make(map[string]*schedulernodeinfo.NodeInfo),
 	}
 }
 
 // NewSnapshot initializes a Snapshot struct and returns it.
 func NewSnapshot(nodeInfoMap map[string]*schedulernodeinfo.NodeInfo) *Snapshot {
 	nodeInfoList := make([]*schedulernodeinfo.NodeInfo, 0, len(nodeInfoMap))
-	havePodsWithAffinityNodeInfoList := make([]*schedulernodeinfo.NodeInfo, 0, len(nodeInfoMap))
+	nodesWithAffinityPods := make(map[string]*schedulernodeinfo.NodeInfo)
 	for _, v := range nodeInfoMap {
 		nodeInfoList = append(nodeInfoList, v)
 		if len(v.PodsWithAffinity()) > 0 {
-			havePodsWithAffinityNodeInfoList = append(havePodsWithAffinityNodeInfoList, v)
+			nodesWithAffinityPods[v.Node().Name] = v
 		}
 	}
 
 	s := NewEmptySnapshot()
 	s.NodeInfoMap = nodeInfoMap
 	s.NodeInfoList = nodeInfoList
-	s.HavePodsWithAffinityNodeInfoList = havePodsWithAffinityNodeInfoList
+	s.NodesWithAffinityPodsMap = nodesWithAffinityPods
 
 	return s
 }
@@ -143,6 +146,22 @@ func (s *Snapshot) ListNodes() []*v1.Node {
 	return nodes
 }
 
+// ListNodesWithAffinityPods returns the list of nodes with affinity pods.
+func (s *Snapshot) ListNodesWithAffinityPods() []*schedulernodeinfo.NodeInfo {
+	if s.nodesWithAffinityPodsList == nil {
+		s.GenerateNodesWithAffinityPodsList()
+	}
+	return s.nodesWithAffinityPodsList
+}
+
+// GenerateNodesWithAffinityPodsList generates the list of nodes with affinity pods by iterating over the map.
+func (s *Snapshot) GenerateNodesWithAffinityPodsList() {
+	s.nodesWithAffinityPodsList = make([]*schedulernodeinfo.NodeInfo, 0, len(s.NodesWithAffinityPodsMap))
+	for _, n := range s.NodesWithAffinityPodsMap {
+		s.nodesWithAffinityPodsList = append(s.nodesWithAffinityPodsList, n)
+	}
+}
+
 type podLister struct {
 	snapshot *Snapshot
 }
@@ -184,7 +203,7 @@ func (n *nodeInfoLister) List() ([]*schedulernodeinfo.NodeInfo, error) {
 
 // HavePodsWithAffinityList returns the list of nodes with at least one pods with inter-pod affinity
 func (n *nodeInfoLister) HavePodsWithAffinityList() ([]*schedulernodeinfo.NodeInfo, error) {
-	return n.snapshot.HavePodsWithAffinityNodeInfoList, nil
+	return n.snapshot.ListNodesWithAffinityPods(), nil
 }
 
 // Returns the NodeInfo of the given node name.
